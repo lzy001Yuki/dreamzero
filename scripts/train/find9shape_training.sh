@@ -5,18 +5,27 @@
 #   bash scripts/train/find9shape_training.sh
 #
 # Common overrides:
-#   NUM_GPUS=1 MAX_STEPS=1000 OUTPUT_DIR=./checkpoints/find9shape \
+#   NUM_GPUS=1 MAX_STEPS=1000 OUTPUT_DIR=/path/to/output \
 #     bash scripts/train/find9shape_training.sh
 
 set -e
 
 export HYDRA_FULL_ERROR=1
 
+REMOTE_PROJECT_ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/tool_adaptation/world2action/dreamzero"
+REMOTE_DATASET_ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets"
+REMOTE_CHECKPOINT_ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/tool_adaptation/world2action/dreamzero/checkpoints"
+VENV_DIR=${VENV_DIR:-"$REMOTE_PROJECT_ROOT/.venv"}
+
+if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$VENV_DIR/bin/activate" ]; then
+    source "$VENV_DIR/bin/activate"
+fi
+
 # Dataset path in LeRobot/GEAR format.
-FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"/n/holylabs/ydu_lab/Lab/zhiyan/myProjects/data/find9shape_small"}
+FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"$REMOTE_DATASET_ROOT/find9shape_small"}
 
 # Output directory for training checkpoints.
-OUTPUT_DIR=${OUTPUT_DIR:-"./checkpoints/dreamzero_find9shape_lora"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_lora"}
 
 # Default to visible GPUs; fall back to 1 when nvidia-smi is unavailable.
 if [ -z "${NUM_GPUS}" ]; then
@@ -27,14 +36,11 @@ if [ "$NUM_GPUS" -lt 1 ]; then
   NUM_GPUS=1
 fi
 
-# Model weight paths.
-#
-# By default, Wan and tokenizer weights are loaded from HuggingFace Hub into the
-# HuggingFace cache, not downloaded into this repo's ./checkpoints directory.
-# Override WAN_CKPT_DIR/TOKENIZER_PATH if you already have local copies.
-WAN_CKPT_DIR=${WAN_CKPT_DIR:-""}
-TOKENIZER_PATH=${TOKENIZER_PATH:-"google/umt5-xxl"}
-AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"/n/home05/zhiyanli/checkpoints/DreamZero-AgiBot"}
+# Model weight paths. Defaults point at the remote server checkpoint root.
+# Override these variables if your checkpoint subdirectory names differ.
+WAN_CKPT_DIR=${WAN_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/Wan2.1-I2V-14B-480P"}
+TOKENIZER_PATH=${TOKENIZER_PATH:-"$REMOTE_CHECKPOINT_ROOT/umt5-xxl"}
+AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
 
 # Keep Hub cache out of the project directory by default. This is still a local
 # cache, but can live on node-local Slurm tmp or /tmp instead of project storage.

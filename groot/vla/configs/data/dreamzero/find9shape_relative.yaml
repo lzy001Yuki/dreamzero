@@ -23,8 +23,8 @@ mixture_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotMixtur
 single_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotSubLangSingleActionChunkDatasetDROID
 
 # Override via CLI or the training script:
-#   find9shape_data_root=/n/holylabs/ydu_lab/Lab/zhiyan/myProjects/data/find9shape_small
-find9shape_data_root: ???
+#   find9shape_data_root=/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/find9shape_small
+find9shape_data_root: /inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/find9shape_small
 
 train_dataset:
   _target_: ${mixture_dataset_cls}
