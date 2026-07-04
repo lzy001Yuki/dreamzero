@@ -67,6 +67,9 @@ The outputs are saved in `runs` directory.
 - **Hardware**: Multi-GPU setup (tested on GB200, H100)
   - Minimum: 2 GPUs for distributed inference
 - **CUDA**: Compatible GPU with CUDA 12.9+
+- **Build tools**: a C/C++ toolchain and Python development headers for your
+  Python version. On Rocky/RHEL 8 with Python 3.11, install `gcc`, `gcc-c++`,
+  `make`, and `python3.11-devel` before running `uv pip install`.
 
 ### Installation
 
@@ -78,11 +81,55 @@ conda activate dreamzero
 
 2. **Install dependencies (PyTorch 2.8+ with CUDA 12.9+):**
 ```bash
-pip install -e . --extra-index-url https://download.pytorch.org/whl/cu129
+uv pip install -e . --extra-index-url https://download.pytorch.org/whl/cu129
+```
+
+If you prefer `uv`, use the same command with an explicit index strategy so
+packages like `requests` are resolved from PyPI instead of the PyTorch wheel
+index:
+```bash
+uv pip install -e . --extra-index-url https://download.pytorch.org/whl/cu129 --index-strategy unsafe-best-match
+```
+
+If you need Linux input-device support (keyboard/gamepad events via `evdev`),
+install it as an optional extra:
+```bash
+pip install -e ".[linux-input]" --extra-index-url https://download.pytorch.org/whl/cu129
+```
+With `uv`, run:
+```bash
+uv pip install -e ".[linux-input]" --extra-index-url https://download.pytorch.org/whl/cu129 --index-strategy unsafe-best-match
+```
+
+If you need GUI features that depend on PyQt6, install them as an optional
+extra:
+```bash
+pip install -e ".[gui]" --extra-index-url https://download.pytorch.org/whl/cu129
+```
+With `uv`, run:
+```bash
+uv pip install -e ".[gui]" --extra-index-url https://download.pytorch.org/whl/cu129 --index-strategy unsafe-best-match
+```
+
+If you need Rerun-based visualization/logging, install it separately on a
+compatible Linux environment (glibc 2.31+):
+```bash
+pip install -e ".[viz]" --extra-index-url https://download.pytorch.org/whl/cu129
+```
+With `uv`, add the same index strategy flag:
+```bash
+uv pip install -e ".[viz]" --extra-index-url https://download.pytorch.org/whl/cu129 --index-strategy unsafe-best-match
 ```
 
 3. **Install flash attention:**
 ```bash
+# On clusters, make sure CUDA toolkit (nvcc) is visible in this shell.
+module load cuda/12.9.1-fasrc01
+export CUDA_HOME=$(dirname $(dirname $(which nvcc)))
+
+# Optional sanity check
+nvcc --version
+
 MAX_JOBS=8 pip install --no-build-isolation flash-attn
 ```
 

@@ -1,0 +1,55 @@
+# @package _global_
+
+defaults:
+  - dreamzero/base_48_wan_fine_aug_relative
+  - _self_ # this file will override the base
+
+max_state_dim: 64
+use_global_metadata: false
+relative_action: false
+relative_action_per_horizon: false
+relative_action_keys: []
+
+# find9shape_small trajectories are 11-17 frames long, so use a short action
+# horizon. Video indices beyond an episode end are clamped by the dataset loader.
+num_frames: 17
+action_horizon: 8
+video_delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+action_delta_indices: [0, 1, 2, 3, 4, 5, 6, 7]
+
+max_chunk_size: 5
+dataset_shard_sampling_rate: 1.0
+mixture_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotMixtureDataset.from_mixture_spec
+single_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotSubLangSingleActionChunkDatasetDROID
+
+# Override via CLI or the training script:
+#   find9shape_data_root=/n/holylabs/ydu_lab/Lab/zhiyan/myProjects/data/find9shape_small
+find9shape_data_root: ???
+
+train_dataset:
+  _target_: ${mixture_dataset_cls}
+  _convert_: object
+  mixture_spec:
+    - dataset_path:
+        real_panda_single_arm:
+          - ${find9shape_data_root}
+      dataset_weight: 1.0
+      distribute_weights: true
+
+  dataset_class: ${single_dataset_cls}
+  all_modality_configs: ${modality_configs}
+  all_transforms: ${transforms}
+  metadata_versions: ${metadata_versions}
+  fps: ${fps}
+  dataset_kwargs:
+    video_backend: decord
+    use_global_metadata: ${use_global_metadata}
+    max_chunk_size: ${max_chunk_size}
+    relative_action: ${relative_action}
+    relative_action_keys: ${relative_action_keys}
+    relative_action_per_horizon: ${relative_action_per_horizon}
+  mixture_kwargs:
+    training: true
+    balance_dataset_weights: false
+    seed: 42
+    shard_sampling_rate: ${dataset_shard_sampling_rate}
