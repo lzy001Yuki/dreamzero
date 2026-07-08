@@ -21,6 +21,9 @@ if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$VENV_DIR/bin/activate" ]; then
     source "$VENV_DIR/bin/activate"
 fi
 
+# Prefer the repository you launch from over any editable/install copy in the venv.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+
 # Dataset path in LeRobot/GEAR format.
 FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"$REMOTE_DATASET_ROOT/find9shape_small"}
 
@@ -92,7 +95,7 @@ torchrun --nproc_per_node "$NUM_GPUS" --standalone groot/vla/experiment/experime
     model=dreamzero/vla \
     model/dreamzero/action_head=wan_flow_matching_action_tf \
     model/dreamzero/transform=dreamzero_cotrain \
-    num_frame_per_block=1 \
+    num_frame_per_block=4 \
     num_action_per_block=8 \
     num_state_per_block=1 \
     seed=42 \
