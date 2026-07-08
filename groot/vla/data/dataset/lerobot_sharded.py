@@ -1,6 +1,7 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 import json
 from pathlib import Path
+import re
 import time
 
 import numpy as np
@@ -13,6 +14,39 @@ import yaml
 from groot.vla.common.utils import get_frames_by_timestamps
 
 from .lerobot import LE_ROBOT_EPISODE_FILENAME, LeRobotMixtureDataset, LeRobotSingleDataset
+
+
+def _load_annotation_start_indices(annotation_csv_path: str | Path) -> dict[int, int]:
+    annotation_csv_path = Path(annotation_csv_path)
+    if not annotation_csv_path.exists():
+        raise FileNotFoundError(f"Annotation CSV not found: {annotation_csv_path}")
+
+    df = pd.read_csv(annotation_csv_path)
+    required_columns = {"episode_index", "top_marked_frame_path"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Annotation CSV {annotation_csv_path} is missing columns: {sorted(missing_columns)}"
+        )
+
+    mapping: dict[int, int] = {}
+    for row in df.itertuples(index=False):
+        episode_index = int(getattr(row, "episode_index"))
+        top_marked_frame_path = str(getattr(row, "top_marked_frame_path"))
+        match = re.search(r"episode_\d+_frame_(\d+)_red_point\.png$", top_marked_frame_path)
+        if match is None:
+            raise ValueError(
+                f"Could not parse frame i from top_marked_frame_path for episode {episode_index}: "
+                f"{top_marked_frame_path}"
+            )
+        start_index = int(match.group(1))
+        if episode_index in mapping and mapping[episode_index] != start_index:
+            raise ValueError(
+                f"Duplicate episode_index={episode_index} has conflicting top_marked_frame_path "
+                f"frame values: {mapping[episode_index]} and {start_index}"
+            )
+        mapping[episode_index] = start_index
+    return mapping
 
 
 class ShardedLeRobotSingleDataset(LeRobotSingleDataset):
@@ -1306,6 +1340,148 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
 
 
 
+class ShardedLeRobotAnnotationContextDataset(ShardedLeRobotSingleDataset):
+    """Sharded dataset that anchors each episode at the annotated context boundary.
+
+    The annotation CSV provides an episode-specific frame index ``i``.  For each
+    episode, video is loaded from the beginning of the episode so frames before
+    ``i`` are available as context, while state/action supervision starts at
+    ``i`` and runs forward.  Out-of-range indices are padded by the existing
+    LeRobot first/last padding logic.
+    """
+
+    def __init__(
+        self,
+        *args,
+        annotation_csv_path: str | Path,
+        print_annotation_indices: bool = True,
+        **kwargs,
+    ):
+        self.annotation_csv_path = Path(annotation_csv_path)
+        self.annotation_start_indices = _load_annotation_start_indices(self.annotation_csv_path)
+        self.print_annotation_indices = print_annotation_indices
+        super().__init__(*args, **kwargs)
+
+    def _get_step_filter(self) -> dict[int, np.ndarray]:
+        base_step_filter = super()._get_step_filter()
+        annotation_step_filter: dict[int, np.ndarray] = {}
+        discarded_episode_indices = self._lerobot_info_meta.get("discarded_episode_indices", [])
+
+        for trajectory_id in self.trajectory_ids:
+            trajectory_id = int(trajectory_id)
+            if trajectory_id in discarded_episode_indices:
+                continue
+            if trajectory_id not in self.annotation_start_indices:
+                continue
+
+            start_index = self.annotation_start_indices[trajectory_id]
+            trajectory_length = int(self.trajectory_lengths[self.get_trajectory_index(trajectory_id)])
+            if start_index < 0 or start_index >= trajectory_length:
+                raise ValueError(
+                    f"Annotated top_marked_frame_path frame {start_index} for episode "
+                    f"{trajectory_id:06d} is outside trajectory length {trajectory_length}"
+                )
+            if start_index not in set(base_step_filter[trajectory_id].tolist()):
+                continue
+            annotation_step_filter[trajectory_id] = np.array([start_index], dtype=np.int64)
+
+        if not annotation_step_filter:
+            raise ValueError(
+                f"No episodes from {self.dataset_path} matched annotation CSV {self.annotation_csv_path}"
+            )
+
+        if self.print_annotation_indices:
+            print(f"Annotation context starts loaded from {self.annotation_csv_path}:")
+            for trajectory_id in sorted(annotation_step_filter):
+                print(f"  episode_{trajectory_id:06d}: i={int(annotation_step_filter[trajectory_id][0])}")
+
+        return annotation_step_filter
+
+    def build_indices_for_step(self, trajectory_id: int, step_index: int) -> dict[str, np.ndarray]:
+        indices: dict[str, np.ndarray] = {}
+        for key, delta_indices in self.delta_indices.items():
+            if key.startswith("video."):
+                indices[key] = delta_indices
+            elif key.startswith("state.") or key.startswith("annotation."):
+                indices[key] = np.zeros_like(delta_indices) + step_index
+            else:
+                indices[key] = delta_indices + step_index
+        return indices
+
+    def get_all_frames_to_load(self):
+        all_frames_to_load = {}
+        for trajectory_id in self.trajectory_ids:
+            trajectory_id = int(trajectory_id)
+            all_frames_to_load[trajectory_id] = {}
+            if trajectory_id not in self.step_filter or len(self.step_filter[trajectory_id]) == 0:
+                for key in self.modality_keys["video"]:
+                    all_frames_to_load[trajectory_id][key] = np.array([])
+                continue
+
+            step_index = int(self.step_filter[trajectory_id][0])
+            indices = self.build_indices_for_step(trajectory_id, step_index)
+            trajectory_length = int(self.trajectory_lengths[self.get_trajectory_index(trajectory_id)])
+            for key in self.modality_keys["video"]:
+                frames_to_load = np.unique(indices[key])
+                frames_to_load = frames_to_load[(frames_to_load >= 0) & (frames_to_load < trajectory_length)]
+                all_frames_to_load[trajectory_id][key] = frames_to_load
+        return all_frames_to_load
+
+    def get_state_or_action(
+        self,
+        trajectory_id: int,
+        modality: str,
+        key: str,
+        step_indices: np.ndarray,
+    ) -> np.ndarray:
+        if modality != "action":
+            return super().get_state_or_action(trajectory_id, modality, key, step_indices)
+
+        trajectory_index = self.get_trajectory_index(trajectory_id)
+        max_length = self.trajectory_lengths[trajectory_index]
+
+        if key == "action.task_progress":
+            frame_index_array = self.curr_traj_data["frame_index"].to_numpy()
+            frame_index = self.retrieve_data_and_pad(
+                array=frame_index_array,
+                step_indices=step_indices,
+                max_length=max_length,
+                padding_strategy="first_last",
+            )
+            return (frame_index / max_length).reshape(-1, 1)
+
+        assert key.startswith("action."), f"{key} must start with action., got {key}"
+        subkey = key.replace("action.", "")
+        le_action_cfg = self.lerobot_modality_meta.action
+        le_key = le_action_cfg[subkey].original_key
+        if le_key is None:
+            le_key = subkey
+
+        assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
+        assert le_key in self.curr_traj_data.columns, f"No {le_key} found in {trajectory_id=}"
+        data_array: np.ndarray = np.stack(self.curr_traj_data[le_key])
+        if data_array.ndim == 1:
+            assert data_array.shape[0] == max_length, (
+                f"Expected 1D array with length {max_length}, got {data_array.shape} array"
+            )
+            data_array = data_array.reshape(-1, 1)
+        assert data_array.ndim == 2, f"Expected 2D array, got {data_array.shape} array"
+
+        le_indices = np.arange(le_action_cfg[subkey].start, le_action_cfg[subkey].end)
+        data_array = data_array[:, le_indices]
+        return self.retrieve_data_and_pad(
+            array=data_array,
+            step_indices=step_indices,
+            max_length=max_length,
+            padding_strategy="first_last",
+        )
+
+    def __getitem__(self, index: int) -> dict:
+        trajectory_id, step_index = self.all_steps[index]
+        indices = self.build_indices_for_step(trajectory_id, step_index)
+        return self.transforms(self.get_step_data(trajectory_id, indices))
+
+
 class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
     """
     A mixture of multiple datasets. This class samples a single dataset based on the dataset weights and then calls the `__getitem__` method of the sampled dataset.
@@ -1568,3 +1744,55 @@ class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):
             dataset = self.datasets[dataset_idx]
             total_length += int(dataset.num_steps_per_shard * self.shard_sampling_rate)
         return total_length
+
+
+class ShardedLeRobotAnnotationContextMixtureDataset(ShardedLeRobotMixtureDataset):
+    """Sharded mixture that lets annotation-context datasets build dynamic indices."""
+
+    def __iter__(self):
+        if not self.balance_trajectory_weights:
+            raise NotImplementedError(
+                "balance_trajectory_weights=False is not supported. Please use balance_dataset_weights=True instead."
+            )
+
+        self._shards_sample_schedule = self.filter_shards_sample_schedule()
+        self.curr_shard_index = -1
+        self.cache_next_shard()
+        rng = np.random.default_rng(self.seed)
+        for i, (dataset_index, shard_index) in enumerate(self.shards_sample_schedule):
+            self.curr_shard_index += 1
+            assert i == self.curr_shard_index, (
+                f"Shard index mismatch: {i} != {self.curr_shard_index}"
+            )
+            dataset = self.datasets[dataset_index]
+            wait_start = time.time()
+            dataset.finish_cache_shard()
+            wait_end = time.time()
+            print(
+                f"Rank {self.rank}, Worker {self.worker_id}: Wait for shard {shard_index} "
+                f"in dataset {dataset_index} in {wait_end - wait_start:.2f} seconds"
+            )
+            self.cache_next_shard()
+
+            all_steps: list[tuple[int, int]] = []
+            for trajectory_id in dataset.get_trajectories_in_shard():
+                allowed_indices = dataset.step_filter[trajectory_id]
+                for step_index in allowed_indices:
+                    all_steps.append((trajectory_id, int(step_index)))
+            if self.training:
+                rng.shuffle(all_steps)
+
+            sampled_steps = all_steps[: int(dataset.num_steps_per_shard * self.shard_sampling_rate)]
+            for trajectory_id, step_index in sampled_steps:
+                if hasattr(dataset, "build_indices_for_step"):
+                    indices = dataset.build_indices_for_step(trajectory_id, step_index)
+                else:
+                    indices = {
+                        key: delta_indices + step_index
+                        for key, delta_indices in dataset.delta_indices.items()
+                    }
+                step_data = dataset.get_step_data(trajectory_id, indices)
+                if step_data is not None:
+                    yield dataset.transforms(step_data)
+
+            dataset.delete_cached_shard()

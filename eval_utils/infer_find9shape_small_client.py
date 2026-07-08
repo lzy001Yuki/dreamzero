@@ -17,11 +17,22 @@ Example:
     --start_idx 3 \
     --chunk_size 4 \
     --port 8010
+
+Annotation-context example:
+  # Start the server with --first_call_full_video so the first request consumes [0, i].
+  python eval_utils/infer_find9shape_small_client.py \
+    --dataset_root ./datasets/find9shape_small \
+    --annotation_csv ./annotation.csv \
+    --episode_index 0 \
+    --use_annotation_start \
+    --chunk_size 8 \
+    --port 8010
 """
 
 
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 import argparse
@@ -169,6 +180,26 @@ def load_find9shape_episode(dataset_root: str, episode_index: int) -> dict:
     }
 
 
+def load_annotation_start(annotation_csv: str, episode_index: int) -> int:
+    path = Path(annotation_csv)
+    df = pd.read_csv(path)
+    required_columns = {"episode_index", "top_marked_frame_path"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(f"{path} is missing columns: {sorted(missing_columns)}")
+    matched = df.loc[df["episode_index"].astype(int) == int(episode_index)]
+    if matched.empty:
+        raise ValueError(f"episode_index={episode_index} not found in {path}")
+    top_marked_frame_path = str(matched.iloc[0]["top_marked_frame_path"])
+    match = re.search(r"episode_\d+_frame_(\d+)_red_point\.png$", top_marked_frame_path)
+    if match is None:
+        raise ValueError(
+            f"Could not parse frame i from top_marked_frame_path for episode "
+            f"{episode_index}: {top_marked_frame_path}"
+        )
+    return int(match.group(1))
+
+
 def main(
     dataset_root: str = "./datasets/find9shape_small",
     episode_index: int = 0,
@@ -180,10 +211,15 @@ def main(
     single_block: bool = False,
     block_size: int = 4,
     block_stride: int | None = None,
+    annotation_csv: str = "annotation.csv",
+    use_annotation_start: bool = False,
 ) -> None:
     logging.basicConfig(level=logging.INFO, force=True)
     episode = load_find9shape_episode(dataset_root, episode_index)
     length = int(episode["length"])
+    if use_annotation_start:
+        start_idx = load_annotation_start(annotation_csv, episode_index)
+        print(f"Using annotation start: episode_{episode_index:06d}: i={start_idx}")
     if start_idx < 0 or start_idx >= length:
         raise ValueError(f"start_idx must be in [0, {length - 1}], got {start_idx}")
     if block_size < 1:
@@ -204,6 +240,11 @@ def main(
 
     print(f"Loaded episode {episode_index}: length={length}, prompt={episode['prompt']!r}")
     print(f"Inferring frames [{start_idx}, {end_idx}) via {host}:{port}")
+    if use_annotation_start:
+        print(
+            "First request will send frames [0, i] as context. "
+            "Start the server with --first_call_full_video to consume the full context."
+        )
 
     last_prediction = None
     if single_block:
@@ -227,13 +268,19 @@ def main(
                 wrist = np.concatenate([wrist, pad_wrist], axis=0)
             request_desc = f"block=[{frame_idx},{block_end}) sent_shape={tuple(top.shape)}"
         elif send_history:
-            top = np.stack(episode["top"][start_idx : frame_idx + 1], axis=0)
-            wrist = np.stack(episode["wrist"][start_idx : frame_idx + 1], axis=0)
-            request_desc = f"history=[{start_idx},{frame_idx + 1}) sent_shape={tuple(top.shape)}"
+            history_start = 0 if use_annotation_start else start_idx
+            top = np.stack(episode["top"][history_start : frame_idx + 1], axis=0)
+            wrist = np.stack(episode["wrist"][history_start : frame_idx + 1], axis=0)
+            request_desc = f"history=[{history_start},{frame_idx + 1}) sent_shape={tuple(top.shape)}"
         else:
-            top = episode["top"][frame_idx]
-            wrist = episode["wrist"][frame_idx]
-            request_desc = f"frame={frame_idx} sent_shape={tuple(np.asarray(top).shape)}"
+            if use_annotation_start and local_i == 0:
+                top = np.stack(episode["top"][: frame_idx + 1], axis=0)
+                wrist = np.stack(episode["wrist"][: frame_idx + 1], axis=0)
+                request_desc = f"context=[0,{frame_idx + 1}) sent_shape={tuple(top.shape)}"
+            else:
+                top = episode["top"][frame_idx]
+                wrist = episode["wrist"][frame_idx]
+                request_desc = f"frame={frame_idx} sent_shape={tuple(np.asarray(top).shape)}"
         obs = {
             "observation/images/top": top,
             "observation/images/wrist": wrist,
@@ -270,6 +317,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8010)
     parser.add_argument("--send_history", action="store_true")
+    parser.add_argument("--annotation_csv", default="annotation.csv")
+    parser.add_argument(
+        "--use_annotation_start",
+        action="store_true",
+        help="Read frame i for --episode_index from --annotation_csv and start inference there.",
+    )
     parser.add_argument(
         "--single_block",
         action="store_true",
@@ -298,4 +351,6 @@ if __name__ == "__main__":
         single_block=args.single_block,
         block_size=args.block_size,
         block_stride=args.block_stride,
+        annotation_csv=args.annotation_csv,
+        use_annotation_start=args.use_annotation_start,
     )

@@ -1,0 +1,21 @@
+# @package _global_
+
+defaults:
+  - dreamzero/find9shape_relative
+  - _self_
+
+# The CSV maps each episode to the frame i where generation should start.
+# Video is sampled from the episode beginning so frames before i are context;
+# state/action supervision starts at i and pads with the last frame/action when
+# the requested horizon runs beyond the episode end.
+find9shape_annotation_csv: /data/home/zhiyanli/dreamzero/annotation.csv
+
+mixture_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotAnnotationContextMixtureDataset.from_mixture_spec
+single_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotAnnotationContextDataset
+
+train_dataset:
+  dataset_kwargs:
+    annotation_csv_path: ${find9shape_annotation_csv}
+    print_annotation_indices: true
+  mixture_kwargs:
+    allow_padding_at_end: true
