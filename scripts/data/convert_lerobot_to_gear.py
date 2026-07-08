@@ -12,6 +12,14 @@ metadata files required by DreamZero's training pipeline:
   - meta/episodes.jsonl   (episode-level metadata)
 
 The script does NOT modify parquet files or videos -- it only creates metadata.
+python scripts/data/convert_lerobot_to_gear.py \
+  --dataset-path /inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/data/baseline_mem_v2/find_imposter_shape_9_vla_v0_textdreamzero \
+  --embodiment-tag real_panda_single_arm \
+  --state-keys '{"eef_pose": [0, 6], "gripper": [6, 7]}' \
+  --action-keys '{"eef_delta": [0, 6], "gripper": [6, 7]}' \
+  --task-key annotation.task \
+  --action-horizon 8 \
+  --force
 
 Usage:
   # Auto-detect state/action structure, default embodiment tag 'xdof':

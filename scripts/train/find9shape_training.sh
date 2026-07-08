@@ -21,11 +21,14 @@ if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$VENV_DIR/bin/activate" ]; then
     source "$VENV_DIR/bin/activate"
 fi
 
+# Prefer the repository you launch from over any editable/install copy in the venv.
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+
 # Dataset path in LeRobot/GEAR format.
-FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"$REMOTE_DATASET_ROOT/find9shape_small"}
+FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/data/baseline_mem_v2/find_imposter_shape_9_vla_v0_textdreamzero"}
 
 # Output directory for training checkpoints.
-OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_lora"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_raw_lora_text"}
 
 # Default to visible GPUs; fall back to 1 when nvidia-smi is unavailable.
 if [ -z "${NUM_GPUS}" ]; then
@@ -40,7 +43,8 @@ fi
 # Override these variables if your checkpoint subdirectory names differ.
 WAN_CKPT_DIR=${WAN_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/Wan2.1-I2V-14B-480P"}
 TOKENIZER_PATH=${TOKENIZER_PATH:-"$REMOTE_CHECKPOINT_ROOT/umt5-xxl"}
-AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
+# AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
+AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_raw_lora/checkpoint-8000"}
 
 # Keep Hub cache out of the project directory by default. This is still a local
 # cache, but can live on node-local Slurm tmp or /tmp instead of project storage.
@@ -48,8 +52,8 @@ HF_CACHE_ROOT=${SLURM_TMPDIR:-/tmp}
 export HF_HOME=${HF_HOME:-"$HF_CACHE_ROOT/hf_cache_${USER:-zhiyanli}"}
 
 # Small-data defaults. Override these for a longer run.
-MAX_STEPS=${MAX_STEPS:-100}
-SAVE_STEPS=${SAVE_STEPS:-100}
+MAX_STEPS=${MAX_STEPS:-10000}
+SAVE_STEPS=${SAVE_STEPS:-1000}
 LEARNING_RATE=${LEARNING_RATE:-1e-5}
 PER_DEVICE_TRAIN_BATCH_SIZE=${PER_DEVICE_TRAIN_BATCH_SIZE:-1}
 
@@ -92,7 +96,7 @@ torchrun --nproc_per_node "$NUM_GPUS" --standalone groot/vla/experiment/experime
     model=dreamzero/vla \
     model/dreamzero/action_head=wan_flow_matching_action_tf \
     model/dreamzero/transform=dreamzero_cotrain \
-    num_frame_per_block=1 \
+    num_frame_per_block=4 \
     num_action_per_block=8 \
     num_state_per_block=1 \
     seed=42 \

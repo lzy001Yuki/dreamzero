@@ -52,6 +52,16 @@ python scripts/data/convert_lerobot_to_gear.py \
     --action-keys '{"joint_pos": [0, 6], "gripper_pos": [6, 7]}' \
     --relative-action-keys joint_pos gripper_pos \
     --task-key annotation.task
+
+
+    python scripts/data/convert_lerobot_to_gear.py \
+  --dataset-path ../data/baseline_mem_v2/find_imposter_shape_9_vla_v0_textdreamzero \
+  --embodiment-tag real_panda_single_arm \
+  --state-keys '{"eef_pose": [0, 6], "gripper": [6, 7]}' \
+  --action-keys '{"eef_delta": [0, 6], "gripper": [6, 7]}' \
+  --task-key task \
+  --action-horizon 8 \
+  --force
 ```
 
 `--state-keys` and `--action-keys` tell the converter how to split a packed vector column into named sub-keys. The JSON maps sub-key name → `[start_index, end_index]`. Omit these flags to let the converter auto-detect.
