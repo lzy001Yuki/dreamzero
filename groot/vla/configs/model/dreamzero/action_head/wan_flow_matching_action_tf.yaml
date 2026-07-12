@@ -103,6 +103,7 @@ action_head_cfg:
     # Beta(3,1): mean=0.75, Beta(5,1): mean=0.83 (higher alpha = more bias to high noise)
     video_noise_beta_alpha: 3.0
     video_noise_beta_beta: 1.0
+    debug_action_error_metrics: false
 
     tune_projector: true
     tune_diffusion_model: true

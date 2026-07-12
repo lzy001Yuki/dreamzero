@@ -90,7 +90,14 @@ class LossLoggerCallback(TrainerCallback):
         if not state.is_world_process_zero or logs is None:
             return
         entry = {"step": state.global_step}
-        for key in ("loss", "dynamics_loss_avg", "action_loss_avg", "learning_rate"):
+        for key in logs:
+            if not (
+                key in ("loss", "learning_rate")
+                or key.endswith("_loss_avg")
+                or key.endswith("_mae_avg")
+                or key.endswith("_mse_avg")
+            ):
+                continue
             if key in logs:
                 entry[key] = logs[key]
         if len(entry) > 1:  # more than just "step"
@@ -408,9 +415,14 @@ class BaseTrainer(transformers.Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         with self.timer.with_label("model_forward"):
             outputs = model(inputs)
-        ### For additional losses, track and log their moving averages
+        ### For additional losses/metrics, track and log their moving averages
+        logged_avgs = {}
         for key, value in outputs.items():
-            if key.endswith("_loss") and key != "loss":
+            if (
+                (key.endswith("_loss") and key != "loss")
+                or key.endswith("_mae")
+                or key.endswith("_mse")
+            ):
                 # Initialize queue if not exists
                 if key not in self.loss_queues:
                     self.loss_queues[key] = []
@@ -426,7 +438,20 @@ class BaseTrainer(transformers.Trainer):
                 # Log average every 10 steps
                 if self.current_step % self.loss_queue_size == 0:
                     avg_loss = sum(self.loss_queues[key]) / len(self.loss_queues[key])
-                    self.log({f"{key}_avg": avg_loss})
+                    avg_key = f"{key}_avg"
+                    logged_avgs[avg_key] = avg_loss
+                    self.log({avg_key: avg_loss})
+
+        if (
+            self.global_rank == 0
+            and self.current_step % self.loss_queue_size == 0
+            and any(key.startswith("pred_action_") for key in logged_avgs)
+        ):
+            debug_parts = [f"step={self.current_step}"]
+            for key in ("action_loss_avg", "pred_action_mae_avg", "pred_action_mse_avg"):
+                if key in logged_avgs:
+                    debug_parts.append(f"{key}={logged_avgs[key]:.6f}")
+            print("[DEBUG] " + " ".join(debug_parts), flush=True)
 
         loss = outputs["loss"]
 
