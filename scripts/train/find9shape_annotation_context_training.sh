@@ -2,7 +2,7 @@
 # DreamZero find9shape_small LoRA fine-tuning with annotation-defined context starts.
 #
 # Usage:
-#   bash scripts/train/find9shape_annotation_context_training.sh
+#   bash scripts/train/find9shape_annotation_context_training.sh --debug 2>&1 | tee logs/find9shape_train_context_$(date +%Y%m%d_%H%M%S).log
 #
 # Common overrides:
 #   NUM_GPUS=1 MAX_STEPS=1000 OUTPUT_DIR=/path/to/output \
@@ -24,9 +24,9 @@ fi
 
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
-FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"$REMOTE_DATASET_ROOT/find9shape_small"}
+FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/find_imposter_shape_9_vla_v0_raw"}
 FIND9SHAPE_ANNOTATION_CSV=${FIND9SHAPE_ANNOTATION_CSV:-"$PWD/annotation.csv"}
-OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw_debug"}
 
 if [ -z "${NUM_GPUS}" ]; then
   NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
@@ -43,8 +43,8 @@ AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
 HF_CACHE_ROOT=${SLURM_TMPDIR:-/tmp}
 export HF_HOME=${HF_HOME:-"$HF_CACHE_ROOT/hf_cache_${USER:-zhiyanli}"}
 
-MAX_STEPS=${MAX_STEPS:-100}
-SAVE_STEPS=${SAVE_STEPS:-100}
+MAX_STEPS=${MAX_STEPS:-10000}
+SAVE_STEPS=${SAVE_STEPS:-1000}
 LEARNING_RATE=${LEARNING_RATE:-1e-5}
 PER_DEVICE_TRAIN_BATCH_SIZE=${PER_DEVICE_TRAIN_BATCH_SIZE:-1}
 
@@ -83,7 +83,7 @@ else
 fi
 
 torchrun --nproc_per_node "$NUM_GPUS" --standalone groot/vla/experiment/experiment.py \
-    report_to=none \
+    report_to=tensorboard \
     data=dreamzero/find9shape_annotation_context \
     wandb_project=dreamzero \
     train_architecture=lora \

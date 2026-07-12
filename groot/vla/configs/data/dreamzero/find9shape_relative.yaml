@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - dreamzero/base_48_wan_fine_aug_relative
+  - base_48_wan_fine_aug_relative
   - _self_ # this file will override the base
 
 max_state_dim: 64
