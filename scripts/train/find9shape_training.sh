@@ -3,6 +3,7 @@
 #
 # Usage:
 #   bash scripts/train/find9shape_training.sh
+#   bash scripts/train/find9shape_training.sh --debug
 #
 # Common overrides:
 #   NUM_GPUS=1 MAX_STEPS=1000 OUTPUT_DIR=/path/to/output \
@@ -11,6 +12,21 @@
 set -e
 
 export HYDRA_FULL_ERROR=1
+
+DEBUG_ACTION_ERROR_METRICS=false
+EXTRA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --debug)
+            DEBUG_ACTION_ERROR_METRICS=true
+            shift
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
 
 REMOTE_PROJECT_ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/cy/tool_adaptation/world2action/dreamzero"
 REMOTE_DATASET_ROOT="/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets"
@@ -124,5 +140,7 @@ torchrun --nproc_per_node "$NUM_GPUS" --standalone groot/vla/experiment/experime
     "${WAN_ARGS[@]}" \
     tokenizer_path="$TOKENIZER_PATH" \
     pretrained_model_path="$AGIBOT_CKPT_DIR" \
+    action_head_cfg.config.debug_action_error_metrics="$DEBUG_ACTION_ERROR_METRICS" \
     ++action_head_cfg.config.skip_component_loading=true \
-    ++action_head_cfg.config.defer_lora_injection=true
+    ++action_head_cfg.config.defer_lora_injection=true \
+    "${EXTRA_ARGS[@]}"

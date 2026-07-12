@@ -121,6 +121,10 @@ class WANPolicyHeadConfig(PretrainedConfig):
     video_inference_final_noise: float = field(
         default=0.8, metadata={"help": "Final noise level for video during decoupled inference (0.0-1.0). E.g., 0.8 means video ends at 80% noise."}
     )
+    debug_action_error_metrics: bool = field(
+        default=False,
+        metadata={"help": "Log denoised action vs ground-truth action MAE/MSE during training without adding it to loss."},
+    )
     num_timestep_buckets: int = field(
         default=1000, metadata={"help": "Number of timestep discretization buckets."}
     )
@@ -809,6 +813,36 @@ class WANPolicyHead(ActionHead):
             "dynamics_loss": weighted_dynamics_loss,
             "action_loss": weighted_action_loss,
         }
+        if (
+            getattr(self.config, "debug_action_error_metrics", False)
+            and actions.numel() > 0
+            and action_noise_pred is not None
+        ):
+            sigma_ids = torch.argmin(
+                (
+                    self.scheduler.timesteps.unsqueeze(1).to(timestep_action.device)
+                    - timestep_action.flatten(0, 1).unsqueeze(0)
+                ).abs(),
+                dim=0,
+            )
+            sigma = self.scheduler.sigmas[sigma_ids].to(
+                device=noisy_actions.device,
+                dtype=noisy_actions.dtype,
+            ).unflatten(0, timestep_action.shape)
+            while sigma.ndim < noisy_actions.ndim:
+                sigma = sigma.unsqueeze(-1)
+
+            pred_actions = noisy_actions.float() - sigma.float() * action_noise_pred.float()
+            action_errors = pred_actions - actions.float()
+            valid_mask = action_mask.float()
+            has_real_action_mask = has_real_action.float()
+            while has_real_action_mask.ndim < valid_mask.ndim:
+                has_real_action_mask = has_real_action_mask.unsqueeze(-1)
+            valid_mask = valid_mask * has_real_action_mask
+            valid_count = valid_mask.sum().clamp_min(1.0)
+
+            output_dict["pred_action_mae"] = (action_errors.abs() * valid_mask).sum() / valid_count
+            output_dict["pred_action_mse"] = (action_errors.square() * valid_mask).sum() / valid_count
 
         return BatchFeature(data=output_dict)
 
