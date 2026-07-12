@@ -9,6 +9,7 @@ defaults:
 # state/action supervision starts at i and pads with the last frame/action when
 # the requested horizon runs beyond the episode end.
 find9shape_annotation_csv: /inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/annotation.csv
+find9shape_goal_image_root: null
 
 mixture_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotAnnotationContextMixtureDataset.from_mixture_spec
 single_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotAnnotationContextDataset
@@ -16,6 +17,7 @@ single_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotAnnotat
 train_dataset:
   dataset_kwargs:
     annotation_csv_path: ${find9shape_annotation_csv}
+    goal_image_root: ${find9shape_goal_image_root}
     print_annotation_indices: true
   mixture_kwargs:
     allow_padding_at_end: true

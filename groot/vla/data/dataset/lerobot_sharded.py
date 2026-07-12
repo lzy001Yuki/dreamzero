@@ -6,6 +6,7 @@ import time
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 import torch
 import torch.distributed as dist
 from torch.utils.data import IterableDataset, get_worker_info
@@ -1354,11 +1355,15 @@ class ShardedLeRobotAnnotationContextDataset(ShardedLeRobotSingleDataset):
         self,
         *args,
         annotation_csv_path: str | Path,
+        goal_image_root: str | Path | None = None,
+        require_goal_images: bool = True,
         print_annotation_indices: bool = True,
         **kwargs,
     ):
         self.annotation_csv_path = Path(annotation_csv_path)
         self.annotation_start_indices = _load_annotation_start_indices(self.annotation_csv_path)
+        self.goal_image_root = Path(goal_image_root) if goal_image_root else None
+        self.require_goal_images = require_goal_images
         self.print_annotation_indices = print_annotation_indices
         super().__init__(*args, **kwargs)
 
@@ -1476,10 +1481,58 @@ class ShardedLeRobotAnnotationContextDataset(ShardedLeRobotSingleDataset):
             padding_strategy="first_last",
         )
 
+    def get_goal_image_path(self, trajectory_id: int, key: str) -> Path:
+        assert self.goal_image_root is not None
+        assert key.startswith("video."), f"Goal image key must start with video., got {key}"
+        subkey = key.replace("video.", "")
+        original_key = self.lerobot_modality_meta.video[subkey].original_key
+        if original_key is None:
+            original_key = subkey
+        chunk_index = self.get_episode_chunk(trajectory_id)
+        candidates = [
+            self.goal_image_root
+            / f"chunk-{chunk_index:03d}"
+            / original_key
+            / f"episode_{trajectory_id:06d}.png",
+            self.goal_image_root
+            / f"chunk-{chunk_index:03d}"
+            / key
+            / f"episode_{trajectory_id:06d}.png",
+            self.goal_image_root / original_key / f"episode_{trajectory_id:06d}.png",
+            self.goal_image_root / key / f"episode_{trajectory_id:06d}.png",
+        ]
+        for path in candidates:
+            if path.exists():
+                return path
+        raise FileNotFoundError(
+            f"Goal image for episode_{trajectory_id:06d}, key={key} not found under "
+            f"{self.goal_image_root}. Tried: {[str(path) for path in candidates]}"
+        )
+
+    def get_goal_video(self, trajectory_id: int) -> np.ndarray | None:
+        if self.goal_image_root is None:
+            return None
+
+        goal_frames = []
+        for key in self.modality_keys["video"]:
+            try:
+                path = self.get_goal_image_path(trajectory_id, key)
+            except FileNotFoundError:
+                if self.require_goal_images:
+                    raise
+                return None
+            frame = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+            goal_frames.append(frame)
+        return np.stack(goal_frames, axis=0)[None, ...]
+
     def __getitem__(self, index: int) -> dict:
         trajectory_id, step_index = self.all_steps[index]
         indices = self.build_indices_for_step(trajectory_id, step_index)
-        return self.transforms(self.get_step_data(trajectory_id, indices))
+        data = self.get_step_data(trajectory_id, indices)
+        goal_video = self.get_goal_video(trajectory_id)
+        if goal_video is not None:
+            data["goal_video"] = goal_video
+        return self.transforms(data)
 
 
 class ShardedLeRobotMixtureDataset(LeRobotMixtureDataset, IterableDataset):

@@ -125,6 +125,10 @@ class WANPolicyHeadConfig(PretrainedConfig):
         default=False,
         metadata={"help": "Log denoised action vs ground-truth action MAE/MSE during training without adding it to loss."},
     )
+    use_goal_image_conditioning: bool = field(
+        default=False,
+        metadata={"help": "Use externally provided goal_images as the image condition when available."},
+    )
     num_timestep_buckets: int = field(
         default=1000, metadata={"help": "Number of timestep discretization buckets."}
     )
@@ -664,7 +668,29 @@ class WANPolicyHead(ActionHead):
 
         # print("latents shape", latents.shape, self.dtype)
         _, _, num_frames, height, width = videos.shape
-        image = videos[:, :, :1].transpose(1, 2)
+        if getattr(self.config, "use_goal_image_conditioning", False) and "goal_images" in data:
+            goal_images = data["goal_images"]
+            goal_images = rearrange(goal_images, "b t h w c -> b c t h w")
+            if goal_images.dtype == torch.uint8:
+                goal_images = goal_images.float() / 255.0
+                gb, gc, gt, gh, gw = goal_images.shape
+                goal_images = goal_images.permute(0, 2, 1, 3, 4).reshape(gb * gt, gc, gh, gw)
+                goal_images = self.normalize_video(goal_images)
+                goal_images = goal_images.reshape(gb, gt, gc, gh, gw).permute(0, 2, 1, 3, 4)
+                goal_images = goal_images.to(dtype=self.dtype)
+            if target_h is not None and target_w is not None:
+                _, _, gt, gh, gw = goal_images.shape
+                if (gh, gw) != (target_h, target_w):
+                    gb, gc, _, _, _ = goal_images.shape
+                    goal_images = torch.nn.functional.interpolate(
+                        goal_images.reshape(gb * gt, gc, gh, gw),
+                        size=(target_h, target_w),
+                        mode="bilinear",
+                        align_corners=False,
+                    ).reshape(gb, gc, gt, target_h, target_w)
+            image = goal_images[:, :, :1].transpose(1, 2)
+        else:
+            image = videos[:, :, :1].transpose(1, 2)
 
         clip_feas, ys, _ = self.encode_image(image, num_frames, height, width)
 
@@ -825,7 +851,7 @@ class WANPolicyHead(ActionHead):
                 ).abs(),
                 dim=0,
             )
-            sigma = self.scheduler.sigmas[sigma_ids].to(
+            sigma = self.scheduler.sigmas.to(timestep_action.device)[sigma_ids].to(
                 device=noisy_actions.device,
                 dtype=noisy_actions.dtype,
             ).unflatten(0, timestep_action.shape)

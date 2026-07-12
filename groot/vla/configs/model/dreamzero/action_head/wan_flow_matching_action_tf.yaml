@@ -104,6 +104,7 @@ action_head_cfg:
     video_noise_beta_alpha: 3.0
     video_noise_beta_beta: 1.0
     debug_action_error_metrics: false
+    use_goal_image_conditioning: false
 
     tune_projector: true
     tune_diffusion_model: true

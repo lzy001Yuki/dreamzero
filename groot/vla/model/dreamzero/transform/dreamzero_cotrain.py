@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from einops import rearrange
 import numpy as np
+from PIL import Image
 from pydantic import Field, PrivateAttr
 import torch
 from transformers import AutoProcessor, ProcessorMixin, AutoTokenizer
@@ -384,6 +385,30 @@ class DreamTransform(InvertibleModalityTransform):
         
         return images
 
+    def _resize_goal_video_to_match(self, goal_video: np.ndarray, reference_video: np.ndarray) -> np.ndarray:
+        """Resize goal views to the per-view resolution used by the transformed video."""
+        ref_h, ref_w = reference_video.shape[-3], reference_video.shape[-2]
+        goal_video = np.asarray(goal_video)
+        if goal_video.ndim != 5:
+            raise ValueError(f"goal_video must have shape [T,V,H,W,C], got {goal_video.shape}")
+        if goal_video.shape[-3:-1] == (ref_h, ref_w):
+            return goal_video.astype(np.uint8, copy=False)
+
+        resized = np.empty(
+            (*goal_video.shape[:-3], ref_h, ref_w, goal_video.shape[-1]),
+            dtype=np.uint8,
+        )
+        for index in np.ndindex(goal_video.shape[0], goal_video.shape[1]):
+            frame = goal_video[index]
+            resized[index] = np.asarray(
+                Image.fromarray(frame.astype(np.uint8, copy=False)).resize(
+                    (ref_w, ref_h),
+                    resample=Image.BILINEAR,
+                ),
+                dtype=np.uint8,
+            )
+        return resized
+
     def _prepare_language(self, data: dict):
         """Tokenize data['language'] (or default_instruction if missing)."""
         # Determine which language key to use
@@ -511,6 +536,10 @@ class DreamTransform(InvertibleModalityTransform):
         # 1) Prepare video and language with vlm processing.
         images = self._prepare_video(data)
         images = images.astype(np.uint8)
+        goal_images = None
+        if "goal_video" in data:
+            goal_video = self._resize_goal_video_to_match(data["goal_video"], data["video"])
+            goal_images = self._prepare_video({"video": goal_video}).astype(np.uint8)
         language, is_lapa_instance, is_dream_instance, is_cotrain_instance = self._prepare_language(data)
         batch_data = {"images": images, "language": language}
         vlm_outputs = self._apply_vlm_processing(batch_data)
@@ -544,6 +573,8 @@ class DreamTransform(InvertibleModalityTransform):
         for k, v in vlm_outputs.items():
             assert k not in transformed_data, f"Key {k} already exists in transformed_data."
             transformed_data[k] = v
+        if goal_images is not None:
+            transformed_data["goal_images"] = rearrange(goal_images, "v t c h w -> (t v) h w c")
 
         transformed_data["embodiment_id"] = self.get_embodiment_tag()
 

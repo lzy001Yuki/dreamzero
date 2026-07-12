@@ -41,7 +41,8 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/find_imposter_shape_9_vla_v0_raw"}
 FIND9SHAPE_ANNOTATION_CSV=${FIND9SHAPE_ANNOTATION_CSV:-"$PWD/annotation.csv"}
-OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw_debug"}
+FIND9SHAPE_GOAL_IMAGE_ROOT=${FIND9SHAPE_GOAL_IMAGE_ROOT:-"$FIND9SHAPE_DATA_ROOT/goal_images"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw"}
 
 if [ -z "${NUM_GPUS}" ]; then
   NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
@@ -53,12 +54,12 @@ fi
 
 WAN_CKPT_DIR=${WAN_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/Wan2.1-I2V-14B-480P"}
 TOKENIZER_PATH=${TOKENIZER_PATH:-"$REMOTE_CHECKPOINT_ROOT/umt5-xxl"}
-AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
-
+# AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
+AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw/checkpoint-10000"} 
 HF_CACHE_ROOT=${SLURM_TMPDIR:-/tmp}
 export HF_HOME=${HF_HOME:-"$HF_CACHE_ROOT/hf_cache_${USER:-zhiyanli}"}
 
-MAX_STEPS=${MAX_STEPS:-10000}
+MAX_STEPS=${MAX_STEPS:-12000}
 SAVE_STEPS=${SAVE_STEPS:-1000}
 LEARNING_RATE=${LEARNING_RATE:-1e-5}
 PER_DEVICE_TRAIN_BATCH_SIZE=${PER_DEVICE_TRAIN_BATCH_SIZE:-1}
@@ -72,6 +73,14 @@ fi
 if [ ! -f "$FIND9SHAPE_ANNOTATION_CSV" ]; then
     echo "ERROR: annotation CSV not found at $FIND9SHAPE_ANNOTATION_CSV"
     echo "Set FIND9SHAPE_ANNOTATION_CSV to annotation.csv."
+    exit 1
+fi
+
+if [ ! -d "$FIND9SHAPE_GOAL_IMAGE_ROOT" ]; then
+    echo "ERROR: goal image root not found at $FIND9SHAPE_GOAL_IMAGE_ROOT"
+    echo "Generate it with:"
+    echo "  python scripts/data/extract_lerobot_goal_images.py --dataset-root $FIND9SHAPE_DATA_ROOT --output-root $FIND9SHAPE_GOAL_IMAGE_ROOT"
+    echo "Or set FIND9SHAPE_GOAL_IMAGE_ROOT to an existing generated-goal folder."
     exit 1
 fi
 
@@ -135,10 +144,12 @@ torchrun --nproc_per_node "$NUM_GPUS" --standalone groot/vla/experiment/experime
     save_strategy=steps \
     find9shape_data_root="$FIND9SHAPE_DATA_ROOT" \
     find9shape_annotation_csv="$FIND9SHAPE_ANNOTATION_CSV" \
+    find9shape_goal_image_root="$FIND9SHAPE_GOAL_IMAGE_ROOT" \
     "${WAN_ARGS[@]}" \
     tokenizer_path="$TOKENIZER_PATH" \
     pretrained_model_path="$AGIBOT_CKPT_DIR" \
     action_head_cfg.config.debug_action_error_metrics="$DEBUG_ACTION_ERROR_METRICS" \
+    action_head_cfg.config.use_goal_image_conditioning=true \
     ++action_head_cfg.config.skip_component_loading=true \
     ++action_head_cfg.config.defer_lora_injection=true \
     "${EXTRA_ARGS[@]}"
