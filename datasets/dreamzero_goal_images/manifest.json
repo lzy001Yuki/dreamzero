@@ -1,0 +1,9 @@
+{
+  "dataset_root": "/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/find_imposter_shape_9_vla_v0_raw",
+  "source": "last_frame",
+  "total_episodes": 250,
+  "video_keys": [
+    "observation.images.top",
+    "observation.images.wrist"
+  ]
+}

@@ -41,8 +41,8 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 FIND9SHAPE_DATA_ROOT=${FIND9SHAPE_DATA_ROOT:-"/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/find_imposter_shape_9_vla_v0_raw"}
 FIND9SHAPE_ANNOTATION_CSV=${FIND9SHAPE_ANNOTATION_CSV:-"$PWD/annotation.csv"}
-FIND9SHAPE_GOAL_IMAGE_ROOT=${FIND9SHAPE_GOAL_IMAGE_ROOT:-"$FIND9SHAPE_DATA_ROOT/goal_images"}
-OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw"}
+FIND9SHAPE_GOAL_IMAGE_ROOT=${FIND9SHAPE_GOAL_IMAGE_ROOT:-"/inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/zhiyan/dreamzero/datasets/dreamzero_goal_images"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_goal_new"}
 
 if [ -z "${NUM_GPUS}" ]; then
   NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
@@ -54,8 +54,8 @@ fi
 
 WAN_CKPT_DIR=${WAN_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/Wan2.1-I2V-14B-480P"}
 TOKENIZER_PATH=${TOKENIZER_PATH:-"$REMOTE_CHECKPOINT_ROOT/umt5-xxl"}
-# AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
-AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw/checkpoint-10000"} 
+AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/DreamZero-AgiBot"}
+# AGIBOT_CKPT_DIR=${AGIBOT_CKPT_DIR:-"$REMOTE_CHECKPOINT_ROOT/dreamzero_find9shape_annotation_context_lora_raw/checkpoint-10000"} 
 HF_CACHE_ROOT=${SLURM_TMPDIR:-/tmp}
 export HF_HOME=${HF_HOME:-"$HF_CACHE_ROOT/hf_cache_${USER:-zhiyanli}"}
 
