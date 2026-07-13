@@ -102,6 +102,13 @@ def _select_video_block(
     context_mode: str,
 ) -> tuple[np.ndarray, np.ndarray, str]:
     length = int(episode["length"])
+    if context_mode == "through_i":
+        start = 0
+        end = annotation_idx + 1
+        top = np.asarray(episode["top"][start:end]).astype(np.uint8, copy=False)
+        wrist = np.asarray(episode["wrist"][start:end]).astype(np.uint8, copy=False)
+        desc = f"{context_mode} raw=[{start},{end}) sent_shape={tuple(top.shape)}"
+        return top, wrist, desc
     if context_mode == "train_window":
         start = 0
         end = min(block_size, length)
@@ -197,11 +204,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--block_size", type=int, default=17)
     parser.add_argument(
         "--context_mode",
-        choices=("train_window", "from_start_to_i", "before_i", "after_i"),
+        choices=("train_window", "from_start_to_i", "before_i", "after_i", "through_i"),
         default="train_window",
         help=(
             "train_window matches the annotation-context dataset: video uses absolute "
-            "[0, block_size), while state/action are anchored at annotation i."
+            "[0, block_size), while state/action are anchored at annotation i. "
+            "through_i sends raw frames [0, i + 1) without padding or trimming."
         ),
     )
     parser.add_argument("--host", default="127.0.0.1")
